@@ -1,0 +1,278 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: node-lambda
+  title: node-lambda
+spec:
+  owner: teamname
+  type: resource
+  parameters:
+  - title: typescript-lambda
+    required:
+      - name
+      - description
+      - system
+      # - expose_api
+      # - Postgres_DB
+      # - Kafka_topic
+      # - api-gateway
+    properties:
+      db:
+        type: array
+        items:
+          type: string
+          title: db_type
+          ui:field: EntityPicker
+          ui:options:
+            multiSelect: true
+            catalogFilter:
+              - kind: Component
+                spec.type: website
+
+      name:
+        title: name
+        type: string
+      description:
+        title: description
+        type: string
+      system:
+        type: string
+        title: project
+        description: The project of the resource
+        ui:field: EntityPicker
+        ui:options:
+          allowedKinds:
+            - System
+      generation:
+        type: boolean
+        title: Generation Method
+
+    dependencies:
+      generation:
+        oneOf:
+          - properties:
+              generation:
+                const: false
+                enum:
+                  - true
+          - required:
+              - customField
+            properties:
+              generation:
+                const: true
+                enum:
+                  - true
+              customField:
+                title: Custom Field
+                type: string
+                ui:field: EntityPicker
+                ui:options:
+                  # multiSelect: true
+                  catalogFilter:
+                    - kind: Component
+                      spec.type: website
+          # - properties:
+          #     expose_api:
+          #       type: boolean
+          #       enum:
+          #         - true
+          #     public-api:
+          #       title: public-api
+          #       type: object
+          #       properties:
+          #         public-api:
+          #           title: public-api
+          #           type: boolean
+          #           ui:widget: radio
+          #     template:
+          #       title: db_type
+          #       type: array
+          #       items:
+          #         type: string
+          #         ui:field: EntityPicker
+          #         ui:options:
+          #           # multiSelect: true
+          #           catalogFilter:
+          #             - kind: Component
+          #               spec.type: website
+                
+      # DB_type:
+      #   title: DB
+      #   type: object
+      #   properties:
+      #     DB_type:
+      #       title: DB_type
+      #       type: boolean
+      #       ui:widget: radio
+      #   dependencies:
+      #     DB_type:
+      #       oneOf:
+      #         - properties:
+      #             DB_type:
+      #               enum:
+      #                 - true
+      #             template:
+      #               title: DB_type
+      #               ui:field: EntityPicker
+      #               ui:options:
+      #                 catalogFilter:
+      #                   - kind: Component
+      #                     spec.type: website
+      # Kafka_topic_consumer:
+      #   title: Kafka_topic_consumer
+      #   type: object
+      #   properties:
+      #     Kafka_topic_consumer:
+      #       title: Kafka_topic_consumer
+      #       type: boolean
+      #       ui:widget: radio
+      #   dependencies:
+      #     Kafka_topic_consumer:
+      #       oneOf:
+      #         - properties:
+      #             Kafka_topic_consumer:
+      #               enum:
+      #                 - true
+      #             template:
+      #               title: Kafka_topic_consumer
+      #               ui:field: EntityPicker
+      #               ui:options:
+      #                 catalogFilter:
+      #                   - kind: Component
+      #                     spec.type: website
+
+
+  steps:
+    - id: registerUrl
+      name: registerUrl
+      action: get:env
+      input:
+        env: REGISTER_URL
+    - id: gitUrl
+      name: gitUrl
+      action: get:env
+      input:
+        env: GIT_URL
+    - id: clone
+      name: git
+      action: git
+      input:
+        command: clone
+        workingDirectory: ./
+        args:
+        - ${{steps.gitUrl.output.env[0]}}
+
+    - id: checkout
+      name: checkout
+      action: git
+      input:
+        command: checkout
+        workingDirectory: ./Backstage_Resources
+        args:
+        - master
+
+    - id: fetch-base
+      name: Fetch Base
+      action: fetch:template
+      input:
+        url: ./env
+        values:
+          name: ${{ parameters.name }}
+          repoUrl: ${{ parameters.repoUrl }}
+          type: ${{ parameters.type }}
+          owner: ${{ user.ref | replace('user:default/', '') }}@leumi.co.il
+          system: ${{ parameters.system | replace('system:default/', '') }}
+        targetPath: ./env
+
+    - action: fs:rename
+      id: rename
+      input:
+        files:
+        - from: ./env/environment.yaml
+          to: ./env/${{parameters.resourceName}}.environment.yaml
+        options:
+          overwrite: true
+
+    - id: add
+      name: add
+      action: git
+      input:
+        command: add
+        workingDirectory: ./env
+        args:
+        - .
+    - id: commit
+      name: commit
+      action: git
+      input:
+        command: commit
+        workingDirectory: ./env
+        args:
+        - -m "backstage template add resource"
+    - id: push
+      name: push
+      action: git
+      input:
+        command: push
+        workingDirectory: ./env
+        args:
+        - ${{steps.gitUrl.output.env[0] }}
+
+##create jenkins folder & job
+    - id: create_jenkins_folder
+      name: Create Jenkins folder
+      action: http:backstage:request
+      input:
+        method: 'POST'
+        path: /proxy/jenkins/api/job/Backstage-Pipelines-Generics/job/lcb/createItem?name=${{ parameters.name }}&mode=com.cloudbees.hudson.plugins.folder.Folder&from=&json={"name":"FolderName","mode":"com.cloudbees.hudson.plugins.folder.Folder","from":"","Submit":"OK"}&Submit=OK
+        headers:
+          Content-Type: 'application/x-www-form-urlencoded'
+
+    - id: create_jenkins_job
+      name: Create Jenkins Job
+      action: http:backstage:request
+      input:
+        method: 'POST'
+        path: /proxy/jenkins/api/job/Backstage-Pipelines-Generics/job/lcb/job/${{ parameters.name }}/createItem?name=ci-cd
+        headers:
+          Content-Type: application/xml
+        body: ${{ steps.parsefile.output.content }}
+
+
+##create src-repo
+    - id: fetch-base
+      name: Fetch Base
+      action: fetch:template
+      input:
+        url: ./content
+        values:
+          name: ${{ parameters.name }}
+          repoUrl: ${{ parameters.repoUrl }}
+          type: ${{ parameters.type }}
+          owner: ${{ user.ref | replace('user:default/', '') }}@leumi.co.il
+          system: ${{ parameters.system | replace('system:default/', '') }}
+        targetPath: ./content
+
+    - id: publish
+      name: Publish
+      action: publish:bitbucketServer
+      input:
+        allowedHosts: ['bitbucket.org']
+        description: This is ${{ parameters.name }}
+        repoUrl: bitbucket.alm.leumi-aws.dev?repo=${{ parameters.name }}&project=TOR
+        sourcePatch: './'
+    
+    - id: register
+      name: Register
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps['publish'].output.remoteUrl }}
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}
