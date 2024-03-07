@@ -47,6 +47,6 @@ spec:
 apiVersion: backstage.io/v1alpha1
 kind: System
 metadata:
-  name: lcb
+  name: lcb1
 spec:
-  owner: lcb
+  owner: moticohen
